@@ -1,0 +1,21 @@
+syntax = "proto3";
+option go_package = "github.com/reddaemon/chat";
+
+package chat;
+
+service ChatManager {
+  rpc Chat(stream Message) returns (stream Message) {}
+}
+
+message Message {
+  uint64 id = 1;
+  string body = 2;
+  User sender = 3;
+  User recipient = 4;
+}
+
+message User {
+  uint64 id = 1;
+  string name = 2;
+  bool registered = 3;
+}
