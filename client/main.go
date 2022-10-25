@@ -68,7 +68,7 @@ func main() {
 			fmt.Println("Enter your message: ")
 			message.Sender = &sender
 			message.Body, err = reader.ReadString('\n')
-			message.Id = uint64(time.Now().UnixNano())
+			message.Id = uint64(time.Now().UnixNano()) // todo change to uuid
 			fmt.Println("Enter recipient name: ")
 			recipient := pb.User{}
 			recipient.Name, err = reader.ReadString('\n')
