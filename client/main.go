@@ -78,7 +78,8 @@ func main() {
 			message.Recipient = &recipient
 			err = stream.Send(&message)
 			if err == io.EOF {
-				continue
+				fmt.Println("EOF")
+				return
 			}
 			if err != nil {
 				return
