@@ -6,8 +6,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"io"
 	"log"
@@ -16,27 +16,66 @@ import (
 )
 
 var (
-	tls                = flag.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
-	caFile             = flag.String("ca_file", "", "The file containing the CA root cert file")
-	serverAddr         = flag.String("addr", "localhost:50051", "The server address in the format of host:port")
-	serverHostOverride = flag.String("server_host_override", "x.test.example.com", "The server name used to verify the hostname returned by the TLS handshake")
+	serverAddr = flag.String("addr", "localhost:50051", "The server address in the format of host:port")
+	userName   = flag.String("username", "", "your username in the chat")
 )
+
+const (
+	defaultTimeout = 10800
+)
+
+func sending(stream pb.ChatManager_ChatClient,
+	waitChannel chan struct{}, errorChannel chan error) {
+	for {
+		reader := bufio.NewReader(os.Stdin)
+		message := pb.Message{}
+		sender := pb.User{}
+		sender.Name = *userName
+		fmt.Println("Enter your message: ")
+		message.Sender = &sender
+		var err error
+		message.Body, err = reader.ReadString('\n')
+		if err != nil {
+			errorChannel <- err
+		}
+		message.Id = uuid.Must(uuid.NewRandom()).String()
+		fmt.Println("Enter recipient name: ")
+		recipient := pb.User{}
+		recipient.Name, err = reader.ReadString('\n')
+		if err != nil {
+			errorChannel <- err
+		}
+		message.Recipient = &recipient
+		err = stream.Send(&message)
+		if err == io.EOF {
+			fmt.Println("EOF")
+			errorChannel <- err
+			return
+		}
+		if err != nil {
+			return
+		}
+		log.Printf("sent: %s", &message)
+		time.Sleep(1 * time.Second)
+		waitChannel <- struct{}{}
+	}
+}
+
+func reading(stream pb.ChatManager_ChatClient) {
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("%s: %s", resp.Sender.Name, resp.Body)
+	}
+}
 
 func main() {
 	flag.Parse()
 	var opts []grpc.DialOption
-	if *tls {
-		if *caFile == "" {
-			*caFile = "ca_cert.pem"
-		}
-		creds, err := credentials.NewClientTLSFromFile(*caFile, *serverHostOverride)
-		if err != nil {
-			log.Fatalf("Failed to create TLS credentials %v", err)
-		}
-		opts = append(opts, grpc.WithTransportCredentials(creds))
-	} else {
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	}
+
+	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	conn, err := grpc.Dial(*serverAddr, opts...)
 	if err != nil {
@@ -49,51 +88,29 @@ func main() {
 		}
 	}(conn)
 	ctx := context.Background()
+	ctxTimeout, cancel := context.WithTimeout(ctx, time.Second*defaultTimeout)
+	defer cancel()
 	client := pb.NewChatManagerClient(conn)
-	stream, err := client.Chat(ctx)
+	stream, err := client.Chat(ctxTimeout)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	go func() {
-		for {
-			reader := bufio.NewReader(os.Stdin)
-			fmt.Println("Enter your name: ")
-			message := pb.Message{}
-			sender := pb.User{}
-			sender.Name, err = reader.ReadString('\n')
-			if err != nil {
-				return
-			}
-			fmt.Println("Enter your message: ")
-			message.Sender = &sender
-			message.Body, err = reader.ReadString('\n')
-			message.Id = uint64(time.Now().UnixNano()) // todo change to uuid
-			fmt.Println("Enter recipient name: ")
-			recipient := pb.User{}
-			recipient.Name, err = reader.ReadString('\n')
-			if err != nil {
-				return
-			}
-			message.Recipient = &recipient
-			err = stream.Send(&message)
-			if err == io.EOF {
-				fmt.Println("EOF")
-				return
-			}
-			if err != nil {
-				return
-			}
-			log.Printf("sent: %s", &message)
-			time.Sleep(1 * time.Second)
-		}
-	}()
+	waitChannel := make(chan struct{})
+	errorChannel := make(chan error)
+
+	go sending(stream, waitChannel, errorChannel)
+	go reading(stream)
+
 	for {
-		resp, err := stream.Recv()
-		if err != nil {
-			log.Fatal(err)
+		select {
+		case err := <-errorChannel:
+			if err != nil {
+				log.Printf("%s", err.Error())
+			}
+		case <-waitChannel:
+
 		}
-		log.Printf("%s: %s", resp.Sender.Name, resp.Body)
 	}
 
 }

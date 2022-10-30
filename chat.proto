@@ -8,7 +8,7 @@ service ChatManager {
 }
 
 message Message {
-  uint64 id = 1;
+  string id = 1;
   string body = 2;
   User sender = 3;
   User recipient = 4;

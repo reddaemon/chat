@@ -2,11 +2,9 @@ package main
 
 import (
 	pb "chat/server/pb"
-	"flag"
 	"fmt"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"io"
 	"log"
 	"net"
@@ -21,11 +19,8 @@ type chatServer struct {
 	users    map[string]pb.ChatManager_ChatServer
 }
 
-var (
-	tls      = flag.Bool("tls", false, "Connection uses TLS if true, else plain TCP")
-	certFile = flag.String("cert_file", "", "The TLS cert file")
-	keyFile  = flag.String("key_file", "", "The TLS key file")
-	port     = flag.Int("port", 50051, "The server port")
+const (
+	defaultPort = "50051"
 )
 
 func (s *chatServer) Chat(stream pb.ChatManager_ChatServer) error {
@@ -51,15 +46,7 @@ func (s *chatServer) Chat(stream pb.ChatManager_ChatServer) error {
 			return err
 		}
 
-		log.Printf("Got message id %d, from  %s to %s", in.Id, in.Sender.Name, in.Recipient.Name)
-
-		//messageId := in.GetId()
-
-		/*s.mu.Lock()
-		s.messages[messageId] = append(s.messages[messageId], in)
-		messagesList := make([]*pb.Message, len(s.messages[messageId]))
-		copy(messagesList, s.messages[messageId])
-		s.mu.Unlock()*/
+		log.Printf("Got message id %s, from  %s to %s", in.Id, in.Sender.Name, in.Recipient.Name)
 
 		log.Printf("broadcast: %s", in.Body)
 		for _, ss := range s.getUsers() {
@@ -103,28 +90,20 @@ func (s *chatServer) getUsers() []pb.ChatManager_ChatServer {
 }
 
 func main() {
-	flag.Parse()
-	listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", *port))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = defaultPort
+	}
+
+	listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%s", port))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	var opts []grpc.ServerOption
-	if *tls {
-		if *certFile == "" {
-			*certFile = "x509/server_cert.pem"
-		}
-		if *keyFile == "" {
-			*keyFile = "x509/server_key.pem"
-		}
-		creds, err := credentials.NewServerTLSFromFile(*certFile, *keyFile)
-		if err != nil {
-			log.Fatalf("Failed to generate credentials %v", err)
-		}
-		opts = []grpc.ServerOption{grpc.Creds(creds)}
-	}
 
 	grpcServer := grpc.NewServer(opts...)
 	pb.RegisterChatManagerServer(grpcServer, newChatServer())
+	log.Printf("listen on port %s", port)
 	err = grpcServer.Serve(listener)
 	if err != nil {
 		panic(err)
