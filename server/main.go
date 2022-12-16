@@ -39,7 +39,7 @@ func (s *chatServer) Chat(stream pb.ChatManager_ChatServer) error {
 	for {
 		in, err := stream.Recv()
 		if err == io.EOF {
-			continue
+			return
 		}
 
 		if err != nil {

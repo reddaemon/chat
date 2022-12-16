@@ -24,6 +24,12 @@ const (
 	defaultTimeout = 10800
 )
 
+// TODO
+// 1. сделать второй тип сервера и клиента (второй клиент может быть чем угодно, например, grpc)
+// 2. сервер живёт в отдельном сервисе
+// 3. 2 сервера между собой соединены очередью
+
+
 func sending(stream pb.ChatManager_ChatClient,
 	waitChannel chan struct{}, errorChannel chan error) {
 	for {
@@ -87,8 +93,8 @@ func main() {
 			log.Printf("error due to close connection: %s", err)
 		}
 	}(conn)
-	ctx := context.Background()
-	ctxTimeout, cancel := context.WithTimeout(ctx, time.Second*defaultTimeout)
+
+	ctxTimeout, cancel := context.WithTimeout(context.Background(), time.Second*defaultTimeout)
 	defer cancel()
 	client := pb.NewChatManagerClient(conn)
 	stream, err := client.Chat(ctxTimeout)
@@ -108,8 +114,12 @@ func main() {
 			if err != nil {
 				log.Printf("%s", err.Error())
 			}
+			return
 		case <-waitChannel:
-
+		case <-ctx.Done:
+			if ctx.Error != context.Canceled {
+				return
+			}
 		}
 	}
 
